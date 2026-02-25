@@ -72,4 +72,3 @@ volumes:
   data:
   media:
   redisdata:
-  paperless-ai_data:
