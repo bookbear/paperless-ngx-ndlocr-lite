@@ -30,6 +30,9 @@ PDF → pre_consume.sh → ndlocr-lite OCR → テキストをPDFに埋め込み
 - ドキュメントのcontentフィールドを上書き更新
 - paperless-ngx内での検索はndlocr-liteの結果が使用される
 
+`post_consume.sh`を使う理由：pre_consumeで画像をOCR処理しようとすると、テキスト埋め込みのためにPDFに変換して返すことになる。しかしpaperless-ngxはpre_consume後も元のファイル種別（画像）が返ってくることを前提にしているため、PDFが返ってく
+るとエラーになる。そのため、取り込み完了後にpost_consumeでDjango ORMを通じて`content`フィールドだけ上書きする方式を採用している。
+
 ## ファイル構成
 
 ```
@@ -81,6 +84,11 @@ PAPERLESS_PRE_CONSUME_SCRIPT=/usr/local/bin/pre_consume.sh
 PAPERLESS_POST_CONSUME_SCRIPT=/usr/local/bin/post_consume.sh
 PAPERLESS_OCR_MODE=skip
 ```
+
+`PAPERLESS_OCR_MODE=skip`の意味：テキストが既に存在するページのOCRをスキップし、テキストのないページのみOCRを実行する。
+
+- PDFはpre_consume.shでテキストを埋め込み済みのため、Tesseract OCRがスキップされndlocr-liteの結果が保持される
+- 画像はテキストがないためTesseract OCRが実行されるが、その後post_consume.shがndlocr-liteの結果で`content`フィールドを上書きする
 
 ## 使い方
 
