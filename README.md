@@ -30,8 +30,9 @@ PDF → pre_consume.sh → ndlocr-lite OCR → テキストをPDFに埋め込み
 - ドキュメントのcontentフィールドを上書き更新
 - paperless-ngx内での検索はndlocr-liteの結果が使用される
 
-`post_consume.sh`を使う理由：pre_consumeで画像をOCR処理しようとすると、テキスト埋め込みのためにPDFに変換して返すことになる。しかしpaperless-ngxはpre_consume後も元のファイル種別（画像）が返ってくることを前提にしているため、PDFが返ってく
-るとエラーになる。そのため、取り込み完了後にpost_consumeでDjango ORMを通じて`content`フィールドだけ上書きする方式を採用している。
+`post_consume.sh`を使う理由：pre_consumeで画像をOCR処理しようとすると、テキスト埋め込みのためにPDFに変換して返すことになる。しかしpaperless-ngxはpre_consume後も元の
+ファイル種別（画像）が返ってくることを前提にしているため、PDFが返ってくるとエラーになる。そのため、取り込み完了後にpost_consumeでDjango ORMを通じて`content`フィール
+ドだけ上書きする方式を採用している。
 
 ## ファイル構成
 
@@ -52,7 +53,8 @@ paperless-ngx/
 
 - ベースイメージ: `ghcr.io/paperless-ngx/paperless-ngx:latest`
 - 追加パッケージ:
-  - `poppler-utils` - PDF→画像変換（pdftoppm）
+  - `poppler-utils` - PDF→画像変換（pdftoppm, pdfimages）
+  - `fonts-noto-cjk` - 日本語フォント（PDFテキスト埋め込み用）
   - `ndlocr-lite` - 日本語OCRエンジン
   - `pymupdf` - PDFテキスト埋め込み
   - `pypdfium2` - PDF処理
@@ -61,10 +63,18 @@ paperless-ngx/
 
 PDFファイル専用のpre-consumeスクリプト。
 
-1. PDFを画像に変換（pdftoppm, 300dpi）
-2. ndlocr-liteでOCR実行
-3. 抽出テキストをPDFに埋め込み（pymupdf）
-4. 元のPDFを上書き
+1. テキスト埋め込み済みPDFはスキップ（`pdftotext`で50文字以上抽出できた場合）
+2. PDFページ幅に応じたDPIで画像に変換（150〜300 DPI）
+3. ndlocr-liteでOCR実行
+4. 抽出テキストをPDFに埋め込み（Noto CJKフォント使用）
+5. 元のPDFを上書き
+
+**DPIの自動調整について：**
+iPhoneのスキャンアプリ等が生成するPDFはページサイズが大きく（例: 4032×3024pt）、固定300 DPIで変換すると元の写真が4倍以上に拡大されてOCR精度が著しく低下する。ページ幅から最適なDPIを計算し（目標出力幅8000px）、150〜300 DPIの範囲で自動調整することでこれを回避する。
+
+**Noto CJKフォントの使用理由：**
+PyMuPDFの内蔵CJKフォント（Droid Sans Fallback）を使用してテキストを埋め込むと、paperless-ngxがPDF/A変換（ocrmypdf経由）した後にpdftotext抽出時に一部の漢字が別の文字
+に化ける問題がある。`fonts-noto-cjk`パッケージのNoto Sans CJKフォントを使用することでこの問題を回避できる。
 
 ### post_consume.sh
 
@@ -137,6 +147,7 @@ print(doc.content)
 - ndlocr-liteは日本語に特化したOCRエンジンのため、英語等の他言語ドキュメントには標準のTesseractの方が適している場合がある
 - 画像ファイルの場合、PDFにはTesseract版のテキストが埋め込まれるが、paperless-ngx内の検索はndlocr-lite版が使用される
 - 大きな画像ファイルの処理には時間がかかる場合がある
+- テキストが既に埋め込まれているPDFは自動的にOCRをスキップする。スキップの閾値は`pre_consume.sh`内の`50`文字（空白除く）で調整可能
 
 ## 参考リンク
 
