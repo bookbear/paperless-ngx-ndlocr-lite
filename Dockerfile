@@ -3,11 +3,13 @@ FROM ghcr.io/paperless-ngx/paperless-ngx:latest
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-# poppler-utils (pdftoppm) をインストール
+# poppler-utils (pdftoppm) と日本語フォントをインストール
+# fonts-noto-cjk: ocrmypdf PDF/A変換後もCJK文字が化けないフォント
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         poppler-utils \
         git \
+        fonts-noto-cjk \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
