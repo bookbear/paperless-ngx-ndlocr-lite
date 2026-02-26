@@ -34,6 +34,14 @@ esac
 
 echo "[ndlocr] 処理開始: $(basename "$DOCUMENT_PATH")"
 
+# ── 既存テキストチェック ──────────────────────────────────────
+# テキスト埋め込み済みPDFはOCRをスキップする
+existing_text="$(pdftotext "$DOCUMENT_PATH" - 2>/dev/null | tr -d '[:space:]')"
+if [[ ${#existing_text} -ge 50 ]]; then
+  echo "[ndlocr] テキスト埋め込み済み（${#existing_text}文字）のためOCRをスキップします" >&2
+  exit 0
+fi
+
 # 作業ディレクトリ
 WORK_DIR="$(mktemp -d /tmp/ndlocr_XXXXXX)"
 IMG_DIR="${WORK_DIR}/images"
@@ -46,8 +54,20 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 # ── Step 1: ファイル → 画像変換 ──────────────────────────────
 
 if [[ "$ext_lower" == "pdf" ]]; then
-  # PDFを300dpiでPNGに変換（pdftoppmはpoppler-utils付属）
-  pdftoppm -r 300 -png "$DOCUMENT_PATH" "${IMG_DIR}/page"
+  # ページ幅に応じてDPIを自動調整（目標出力幅: 8000px、範囲: 150〜300 DPI）
+  # iPhoneスキャンPDF（ページが大きい）は低DPI、通常A4 PDFは300 DPIになる
+  render_dpi=$(python3 - "$DOCUMENT_PATH" <<'PYEOF'
+import sys
+import fitz
+doc = fitz.open(sys.argv[1])
+page_width_pts = doc[0].rect.width if len(doc) > 0 else 595
+dpi = 8000 * 72 / page_width_pts
+dpi = max(150, min(300, int(dpi)))
+print(dpi)
+PYEOF
+)
+  echo "[ndlocr] レンダリングDPI: ${render_dpi}"
+  pdftoppm -r "$render_dpi" -png "$DOCUMENT_PATH" "${IMG_DIR}/page"
   echo "[ndlocr] PDF→画像変換完了: $(ls "${IMG_DIR}" | wc -l)ページ"
 else
   # 画像ファイルはそのままコピー
@@ -104,19 +124,19 @@ lines = Path(sys.argv[2]).read_text(encoding="utf-8").split("\n")
 doc = fitz.open(sys.argv[1])
 n = len(doc)
 lines_per_page = max(1, len(lines) // n) if n > 0 else 1
+font = fitz.Font(fontfile="/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc")  # Noto CJK（ocrmypdf PDF/A変換後も文字化けしない）
 
 for page_num, page in enumerate(doc):
     start = page_num * lines_per_page
     end = start + lines_per_page if page_num < n - 1 else len(lines)
     page_text = "\n".join(lines[start:end])
     if page_text.strip():
-        page.insert_text(
-            (0, 12),
-            page_text,
-            fontsize=1,
-            color=(1, 1, 1),
-            overlay=False,
-        )
+        tw = fitz.TextWriter(page.rect, color=(1, 1, 1))  # 白色・不可視
+        try:
+            tw.append((0, 12), page_text, font=font, fontsize=1)
+        except Exception as e:
+            print(f"[ndlocr] テキスト埋め込み警告: {e}", file=sys.stderr)
+        tw.write_text(page)
 
 doc.save(sys.argv[3])
 doc.close()
